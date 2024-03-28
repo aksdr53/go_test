@@ -5,91 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-
-	_ "github.com/lib/pq"
-)
-
-type Shelve struct {
-	ID   int
-	Name string
-}
-
-type Product struct {
-	ID         int
-	Name       string
-	MainShelve int
-}
-
-func main() {
-	db, err := sql.Open("postgres", "postgres://user:password@localhost/dbname?sslmode=disable")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer db.Close()
-
-	orderIDs := os.Args[1:] // Получаем номера заказов из аргументов командной строки
-
-	for _, orderID := range orderIDs {
-		products := getProductsInOrder(db, orderID)
-
-		for _, product := range products {
-			shelves := getShelvesForProduct(db, product.ID)
-			fmt.Printf("Для товара %s из заказа %s необходимо посетить следующие стеллажи:\n", product.Name, orderID)
-			for _, sh := range shelves {
-				fmt.Printf("%s\n", sh.Name)
-			}
-		}
-	}
-}
-
-func getProductsInOrder(db *sql.DB, orderID string) []Product {
-	var products []Product
-
-	rows, err := db.Query("SELECT id, name, main_shelve FROM Товар WHERE id IN (SELECT id_товара FROM Заказы WHERE id_заказа = $1)", orderID)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var p Product
-		if err := rows.Scan(&p.ID, &p.Name, &p.MainShelve); err != nil {
-			log.Fatal(err)
-		}
-		products = append(products, p)
-	}
-
-	return products
-}
-
-func getShelvesForProduct(db *sql.DB, productID int) []Shelve {
-	var shelves []Shelve
-
-	rows, err := db.Query("SELECT s.id, s.name FROM Стеллаж s JOIN Прочие_стеллажи ps ON s.id = ps.id_стеллажа WHERE ps.id_товара = $1", productID)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var s Shelve
-		if err := rows.Scan(&s.ID, &s.Name); err != nil {
-			log.Fatal(err)
-		}
-		shelves = append(shelves, s)
-	}
-
-	return shelves
-}
-
-
-package main
-
-import (
-	"database/sql"
-	"fmt"
-	"log"
-	"os"
 	"strings"
 
 	_ "github.com/lib/pq"
@@ -98,9 +13,9 @@ import (
 const (
 	host     = "localhost"
 	port     = 5432
-	user     = "youruser"
-	password = "yourpassword"
-	dbname   = "yourdbname"
+	user     = "go_user"
+	password = "password"
+	dbname   = "go_db"
 )
 
 func main() {
@@ -117,36 +32,33 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fmt.Println("Введите номера заказов через запятую (например, 10,11,14):")
-	var input string
-	fmt.Scanln(&input)
+	IDs := os.Args[1] // Получаем номера заказов из аргументов командной строки
 
-	orderIDs := strings.Split(input, ",")
+	orderIDs := strings.Split(IDs, ",")
 
 	type ProductInfo struct {
-		Name        string
-		OrderID     string
-		Count       int
-		Shelves     []string
-		MainShelf   string
-		Additional  string
+		Name       string
+		OrderID    string
+		Count      int
+		Shelves    []string
+		MainShelf  string
+		Additional string
 	}
 
 	shelfProducts := make(map[string][]ProductInfo)
 
 	for _, orderID := range orderIDs {
 		rows, err := db.Query(`
-			SELECT p.name, o.id, o.count, s.name, p.main_shelve
+			SELECT p.name, o.order_id, o.count, s.name, p.main_shelve
 			FROM orders o
-			JOIN products p ON o.product_id = p.id
-			JOIN shelves s ON p.main_shelve = s.id
-			WHERE o.id = $1
+			JOIN product p ON o.product_id = p.id
+			JOIN shelve s ON p.main_shelve = s.id
+			WHERE o.order_id = $1
 		`, strings.TrimSpace(orderID))
 		if err != nil {
 			log.Fatal(err)
 		}
 		defer rows.Close()
-
 		for rows.Next() {
 			var pi ProductInfo
 			var shelfName string
@@ -157,9 +69,9 @@ func main() {
 			// Get additional shelves
 			additionalRows, err := db.Query(`
 				SELECT s.name
-				FROM additional_shelves a
-				JOIN shelves s ON a.shelve_id = s.id
-				WHERE a.product_id = (SELECT id FROM products WHERE name = $1)
+				FROM additional_shelve a
+				JOIN shelve s ON a.shelve_id = s.id
+				WHERE a.product_id = (SELECT id FROM product WHERE name = $1)
 			`, pi.Name)
 			if err != nil {
 				log.Fatal(err)
