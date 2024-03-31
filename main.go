@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -52,14 +53,28 @@ type ProductInfo struct {
 	MainShelf string
 }
 
-func (dbh *DBHandler) GetProductInfo(orderID string) ([]ProductInfo, error) {
-	var products []ProductInfo
+type Shelves struct {
+	shelveId   int
+	shelveName string
+	productId  int
+	isMain     bool
+}
+
+func (dbh *DBHandler) GetProductInfo(orderIDs string) ([]ProductInfo, error) {
+
+	var pis []ProductInfo
+
+	Names := make(map[int]string)
+	var stringIds []string
+
+	var shelves []Shelves
+	var stringShelves []string
 
 	rows, err := dbh.db.Query(`
-		SELECT product_id, count
+		SELECT product_id, count, order_id
 		FROM orders
-		WHERE order_id = $1
-	`, strings.TrimSpace(orderID))
+		WHERE order_id IN (
+	` + orderIDs + `)`)
 	if err != nil {
 		return nil, err
 	}
@@ -67,67 +82,98 @@ func (dbh *DBHandler) GetProductInfo(orderID string) ([]ProductInfo, error) {
 
 	for rows.Next() {
 		var pi ProductInfo
-		pi.OrderID = orderID
 
-		if err := rows.Scan(&pi.Id, &pi.Count); err != nil {
+		if err := rows.Scan(&pi.Id, &pi.Count, &pi.OrderID); err != nil {
 			return nil, err
 		}
 
-		productRow := dbh.db.QueryRow(`
-			SELECT name
-			FROM product
-			WHERE id = $1
-		`, pi.Id)
-		if err != nil {
-			return nil, err
-		}
+		stringIds = append(stringIds, strconv.Itoa(pi.Id)) //добавить избегание дублирования
+		pis = append(pis, pi)
+	}
+	idsString := strings.Join(stringIds, ",")
 
-		if err := productRow.Scan(&pi.Name); err != nil {
-			return nil, err
-		}
-
-		productShelveRow, err := dbh.db.Query(`
-			SELECT shelve_id, is_main
-			FROM shelve_product
-			WHERE product_id = $1
-		`, pi.Id)
-		if err != nil {
-			return nil, err
-		}
-		defer productShelveRow.Close()
-		for productShelveRow.Next() {
-			var isMain bool
-			var shelveId int
-
-			if err := productShelveRow.Scan(&shelveId, &isMain); err != nil {
-				return nil, err
-			}
-
-			shelveRow := dbh.db.QueryRow(`
-				SELECT name
-				FROM shelve
-				WHERE id = $1
-			`, shelveId)
-			if err != nil {
-				return nil, err
-			}
-
-			var shelveName string
-			if err := shelveRow.Scan(&shelveName); err != nil {
-				return nil, err
-			}
-
-			if isMain {
-				pi.MainShelf = shelveName
-			} else {
-				pi.Shelves = append(pi.Shelves, shelveName)
-			}
-		}
-
-		products = append(products, pi)
+	productRows, err := dbh.db.Query(`
+		SELECT name, id
+		FROM product
+		WHERE id IN (
+	` + idsString + `)`)
+	if err != nil {
+		return nil, err
 	}
 
-	return products, nil
+	for productRows.Next() {
+		var id int
+		var Name string
+		if err := productRows.Scan(&Name, &id); err != nil {
+			return nil, err
+		}
+
+		Names[id] = Name
+	}
+
+	productShelveRow, err := dbh.db.Query(`
+		SELECT shelve_id, is_main, product_id
+		FROM shelve_product
+		WHERE product_id IN (
+	` + idsString + `)`)
+	if err != nil {
+		return nil, err
+	}
+	defer productShelveRow.Close()
+	for productShelveRow.Next() {
+		var sh Shelves
+
+		if err := productShelveRow.Scan(&sh.shelveId, &sh.isMain, &sh.productId); err != nil {
+			return nil, err
+		}
+		stringShelves = append(stringShelves, strconv.Itoa(sh.shelveId))
+		shelves = append(shelves, sh)
+	}
+	shelveIds := strings.Join(stringShelves, ",")
+
+	shelveRows, err := dbh.db.Query(`
+		SELECT name, id
+		FROM shelve
+		WHERE id IN (
+	` + shelveIds + `)`)
+	if err != nil {
+		return nil, err
+	}
+	defer shelveRows.Close()
+	for shelveRows.Next() {
+		var shelveName string
+		var shelveId int
+		if err := shelveRows.Scan(&shelveName, &shelveId); err != nil {
+			return nil, err
+		}
+
+		for i, shelve := range shelves {
+			if shelve.shelveId == shelveId {
+
+				shelves[i].shelveName = shelveName
+
+			}
+
+		}
+	}
+
+	for i, pi := range pis {
+		for _, shelve := range shelves {
+			if pi.Id == shelve.productId {
+
+				if shelve.isMain {
+					pis[i].MainShelf = shelve.shelveName
+
+				} else {
+					pis[i].Shelves = append(pis[i].Shelves, shelve.shelveName)
+				}
+			}
+		}
+		pis[i].Name = Names[pi.Id]
+
+	}
+
+	return pis, nil
 }
 
 func main() {
@@ -137,20 +183,18 @@ func main() {
 	}
 	defer dbh.Close()
 
-	IDs := os.Args[1] // Получаем номера заказов из аргументов командной строки
-	orderIDs := strings.Split(IDs, ",")
+	orderIDs := os.Args[1] // Получаем номера заказов из аргументов командной строки
 
 	shelfProducts := make(map[string][]ProductInfo)
 
-	for _, orderID := range orderIDs {
-		products, err := dbh.GetProductInfo(orderID)
-		if err != nil {
-			log.Fatal(err)
-		}
+	products, err := dbh.GetProductInfo(orderIDs)
 
-		for _, product := range products {
-			shelfProducts[product.MainShelf] = append(shelfProducts[product.MainShelf], product)
-		}
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for _, product := range products {
+		shelfProducts[product.MainShelf] = append(shelfProducts[product.MainShelf], product)
 	}
 
 	for shelf, products := range shelfProducts {
