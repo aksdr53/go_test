@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"/Dev/go_test/internal/repository"
-
-	"./internal/usecase"
+	"go_test/internal/domain"
+	"go_test/internal/repository"
+	"go_test/internal/usecase"
 
 	_ "github.com/lib/pq"
 )
@@ -29,7 +29,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	shelfProducts := make(map[string][]ProductInfo)
+	shelfProducts := make(map[string][]domain.ProductInfo)
 	for _, product := range products {
 		shelfProducts[product.MainShelf] = append(shelfProducts[product.MainShelf], product)
 	}

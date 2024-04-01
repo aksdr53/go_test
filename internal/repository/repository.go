@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"./domain"
+	"go_test/internal/domain"
 )
 
 type DBHandler struct {
@@ -16,9 +16,14 @@ func NewDBHandler(db *sql.DB) *DBHandler {
 	return &DBHandler{db: db}
 }
 
+type Shelves struct {
+	shelveId int
+	isMain   bool
+}
+
 func (dbh *DBHandler) GetProductInfo(orderIDs string) ([]domain.ProductInfo, error) {
 	var pis []domain.ProductInfo
-	shs := make(map[int][]domain.Shelves)
+	shs := make(map[int][]Shelves)
 	shelveNames := make(map[int]string)
 	Names := make(map[int]string)
 	var stringIds []string
@@ -75,7 +80,7 @@ func (dbh *DBHandler) GetProductInfo(orderIDs string) ([]domain.ProductInfo, err
 	}
 	defer productShelveRow.Close()
 	for productShelveRow.Next() {
-		var sh domain.Shelves
+		var sh Shelves
 		var productId int
 
 		if err := productShelveRow.Scan(&sh.shelveId, &sh.isMain, &productId); err != nil {
