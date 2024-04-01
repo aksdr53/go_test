@@ -11,8 +11,15 @@ import (
 	"go_test/internal/repository"
 	"go_test/internal/usecase"
 
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
+
+func init() {
+	if err := godotenv.Load(); err != nil {
+		log.Fatal("Error loading .env file")
+	}
+}
 
 func main() {
 	db, err := sql.Open("postgres", constructDSN())
