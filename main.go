@@ -54,20 +54,18 @@ type ProductInfo struct {
 }
 
 type Shelves struct {
-	shelveId   int
-	shelveName string
-	productId  int
-	isMain     bool
+	shelveId int
+
+	isMain bool
 }
 
 func (dbh *DBHandler) GetProductInfo(orderIDs string) ([]ProductInfo, error) {
 
 	var pis []ProductInfo
-
+	shs := make(map[int][]Shelves)
+	shelveNames := make(map[int]string)
 	Names := make(map[int]string)
 	var stringIds []string
-
-	var shelves []Shelves
 	var stringShelves []string
 
 	rows, err := dbh.db.Query(`
@@ -87,7 +85,7 @@ func (dbh *DBHandler) GetProductInfo(orderIDs string) ([]ProductInfo, error) {
 			return nil, err
 		}
 
-		stringIds = append(stringIds, strconv.Itoa(pi.Id)) //добавить избегание дублирования
+		stringIds = append(stringIds, strconv.Itoa(pi.Id))
 		pis = append(pis, pi)
 	}
 	idsString := strings.Join(stringIds, ",")
@@ -122,12 +120,13 @@ func (dbh *DBHandler) GetProductInfo(orderIDs string) ([]ProductInfo, error) {
 	defer productShelveRow.Close()
 	for productShelveRow.Next() {
 		var sh Shelves
+		var productId int
 
-		if err := productShelveRow.Scan(&sh.shelveId, &sh.isMain, &sh.productId); err != nil {
+		if err := productShelveRow.Scan(&sh.shelveId, &sh.isMain, &productId); err != nil {
 			return nil, err
 		}
 		stringShelves = append(stringShelves, strconv.Itoa(sh.shelveId))
-		shelves = append(shelves, sh)
+		shs[productId] = append(shs[productId], sh)
 	}
 	shelveIds := strings.Join(stringShelves, ",")
 
@@ -146,30 +145,20 @@ func (dbh *DBHandler) GetProductInfo(orderIDs string) ([]ProductInfo, error) {
 		if err := shelveRows.Scan(&shelveName, &shelveId); err != nil {
 			return nil, err
 		}
+		shelveNames[shelveId] = shelveName
 
-		for i, shelve := range shelves {
-			if shelve.shelveId == shelveId {
-
-				shelves[i].shelveName = shelveName
-
-			}
-
-		}
 	}
 
 	for i, pi := range pis {
-		for _, shelve := range shelves {
-			if pi.Id == shelve.productId {
-
-				if shelve.isMain {
-					pis[i].MainShelf = shelve.shelveName
-
-				} else {
-					pis[i].Shelves = append(pis[i].Shelves, shelve.shelveName)
-				}
+		pis[i].Name = Names[pi.Id]
+		for _, sh := range shs[pi.Id] {
+			shelveId := sh.shelveId
+			if sh.isMain {
+				pis[i].MainShelf = shelveNames[shelveId]
+			} else {
+				pis[i].Shelves = append(pis[i].Shelves, shelveNames[shelveId])
 			}
 		}
-		pis[i].Name = Names[pi.Id]
 
 	}
 
